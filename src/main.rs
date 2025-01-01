@@ -30,25 +30,32 @@ async fn main() -> eyre::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <erc20_address>", args[0]);
-        std::process::exit(1);
+        return Err(eyre::eyre!("Invalid number of arguments"));
     }
 
     // Parse the address
-    let address = args[1].parse::<Address>()?;
+    let address = args[1].parse::<Address>()
+        .map_err(|e| eyre::eyre!("Invalid Ethereum address: {}", e))?;
 
-    // Connect to Ethereum mainnet using a public RPC endpoint. Created an alchemy project for this.
-    let provider = Provider::<Http>::try_from(
-        "https://eth-mainnet.g.alchemy.com/v2/wG-LsTvyJpd_ofx1QOVZGtRI01EBb3t8"
-    )?;
+    // Connect to Ethereum mainnet using a public RPC endpoint
+    let api_key = std::env::var("ALCHEMY_API_KEY")
+        .map_err(|_| eyre::eyre!("ALCHEMY_API_KEY environment variable not set"))?;
+    let rpc_url = format!("https://eth-mainnet.g.alchemy.com/v2/{}", api_key);
+    
+    let provider = Provider::<Http>::try_from(rpc_url)
+        .map_err(|e| eyre::eyre!("Failed to connect to Ethereum node: {}", e))?;
     let provider = Arc::new(provider);
 
     // Create contract instance
-    let contract = ERC20::new(address, provider);
+    let contract = ERC20::new(address, provider.clone());
 
     // Fetch token metadata
-    let name = contract.name().call().await?;
-    let symbol = contract.symbol().call().await?;
-    let decimals = contract.decimals().call().await?;
+    let name = contract.name().call().await
+        .map_err(|e| eyre::eyre!("Failed to fetch token name: {}", e))?;
+    let symbol = contract.symbol().call().await
+        .map_err(|e| eyre::eyre!("Failed to fetch token symbol: {}", e))?;
+    let decimals = contract.decimals().call().await
+        .map_err(|e| eyre::eyre!("Failed to fetch token decimals: {}", e))?;
 
     // Create and serialize the token metadata
     let token_metadata = TokenMetadata {
@@ -58,7 +65,8 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Print the JSON output
-    println!("{}", serde_json::to_string_pretty(&token_metadata)?);
+    println!("{}", serde_json::to_string_pretty(&token_metadata)
+        .map_err(|e| eyre::eyre!("Failed to serialize metadata: {}", e))?);
 
     Ok(())
 } 
